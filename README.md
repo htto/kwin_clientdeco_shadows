@@ -1,4 +1,12 @@
 kwin_clientdeco_shadows
 =======================
 
-hack to kwin/qtcurve to allow for shadows to appear on client decorated windows
+Hack to kwin/qtcurve to allow for shadows to appear on client decorated windows,
+such as chromium or steam.
+
+This is really hacky and iirc discouraged by kwin upstream, so your mileage may
+vary. Needs a proper rewrite/cleanup.
+
+I don't take any responsibility for breakage.
+
+Kudos to the kwin and qtcurve team.
