@@ -9,4 +9,6 @@ vary. Needs a proper rewrite/cleanup.
 
 I don't take any responsibility for breakage.
 
+Just patch kwin (kdeworkspace) and qtcurve with the appropriate patch.
+
 Kudos to the kwin and qtcurve team.

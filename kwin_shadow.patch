@@ -1,0 +1,289 @@
+--- kde-workspace-4.11.6/kwin/client.cpp.orig	2014-02-06 18:52:04.688334349 +0100
++++ kde-workspace-4.11.6/kwin/client.cpp	2014-02-08 16:21:42.844883238 +0100
+@@ -376,7 +376,7 @@ void Client::updateInputWindow()
+ 
+     QRegion region;
+ 
+-    if (!noBorder()) {
++    if (!noDecoration()) {
+         // This function is implemented as a slot to avoid breaking binary
+         // compatibility
+         QMetaObject::invokeMethod(decoration, "region", Qt::DirectConnection,
+@@ -422,13 +422,13 @@ void Client::updateInputWindow()
+ void Client::updateDecoration(bool check_workspace_pos, bool force)
+ {
+     if (!force &&
+-            ((decoration == NULL && noBorder()) || (decoration != NULL && !noBorder())))
++            ((decoration == NULL && noDecoration()) || (decoration != NULL && !noDecoration())))
+         return;
+     QRect oldgeom = geometry();
+     blockGeometryUpdates(true);
+     if (force)
+         destroyDecoration();
+-    if (!noBorder()) {
++    if (!noDecoration()) {
+         createDecoration(oldgeom);
+     } else
+         destroyDecoration();
+@@ -436,7 +436,7 @@ void Client::updateDecoration(bool check
+         checkWorkspacePosition(oldgeom);
+     updateInputWindow();
+     blockGeometryUpdates(false);
+-    if (!noBorder())
++    if (!noDecoration())
+         decoration->widget()->show();
+     updateFrameExtents();
+ }
+@@ -674,9 +674,14 @@ void Client::resizeDecoration(const QSiz
+     updateInputWindow();
+ }
+ 
++bool Client::noDecoration() const
++{
++    return decorationPlugin()->isDisabled() || isSpecialWindow() || isFullScreen();
++}
++
+ bool Client::noBorder() const
+ {
+-    return decorationPlugin()->isDisabled() || noborder || isFullScreen();
++    return noDecoration() || noborder;
+ }
+ 
+ bool Client::userCanSetNoBorder() const
+@@ -686,13 +691,14 @@ bool Client::userCanSetNoBorder() const
+ 
+ void Client::setNoBorder(bool set)
+ {
++    //kError(1212) << "set noborder on '" << caption() << "': " << set;
+     if (!userCanSetNoBorder())
+         return;
+     set = rules()->checkNoBorder(set);
+-    if (noborder == set)
++    if (noborder  == set)
+         return;
+     noborder = set;
+-    updateDecoration(true, false);
++    updateDecoration(true, true); // for now force deco updating
+     updateWindowRules(Rules::NoBorder);
+ }
+ 
+@@ -703,6 +709,7 @@ void Client::checkNoBorder()
+ 
+ void Client::updateShape()
+ {
++#if 1
+     if (shape()) {
+         // Workaround for #19644 - Shaped windows shouldn't have decoration
+         if (!app_noborder) {
+@@ -722,6 +729,7 @@ void Client::updateShape()
+         noborder = rules()->checkNoBorder(noborder || motif_noborder);
+         updateDecoration(true);
+     }
++#endif
+ 
+     // Decoration mask (i.e. 'else' here) setting is done in setMask()
+     // when the decoration calls it or when the decoration is created/destroyed
+@@ -939,7 +947,7 @@ QRect Client::iconGeometry() const
+ 
+ bool Client::isShadeable() const
+ {
+-    return !isSpecialWindow() && !noBorder() && (rules()->checkShade(ShadeNormal) != rules()->checkShade(ShadeNone));
++    return !noBorder() && (rules()->checkShade(ShadeNormal) != rules()->checkShade(ShadeNone));
+ }
+ 
+ void Client::setShade(bool set) {
+@@ -2006,7 +2014,7 @@ void Client::getMotifHints()
+         motif_noborder = mnoborder;
+         // If we just got a hint telling us to hide decorations, we do so.
+         if (motif_noborder)
+-            noborder = rules()->checkNoBorder(true);
++            noborder = rules()->checkNoBorder(true) ;
+         // If the Motif hint is now telling us to show decorations, we only do so if the app didn't
+         // instruct us to hide decorations in some other way, though.
+         else if (!app_noborder)
+@@ -2238,7 +2246,8 @@ bool Client::wantsInput() const
+ bool Client::isSpecialWindow() const
+ {
+     // TODO
+-    return isDesktop() || isDock() || isSplash() || isToolbar();
++    return isDesktop() || isDock() || isSplash() || isToolbar()
++        || (info->windowType(SUPPORTED_MANAGED_WINDOW_TYPES_MASK | NET::OverrideMask) == NET::Override);
+ }
+ 
+ /**
+--- kde-workspace-4.11.6/kwin/shadow.cpp.orig	2014-02-06 18:23:37.199275393 +0100
++++ kde-workspace-4.11.6/kwin/shadow.cpp	2014-02-08 12:55:38.057456311 +0100
+@@ -26,6 +26,7 @@ along with this program.  If not, see <h
+ #ifdef KWIN_HAVE_XRENDER_COMPOSITING
+ #include "scene_xrender.h"
+ #endif
++#include <kdebug.h>
+ 
+ namespace KWin
+ {
+@@ -139,6 +140,7 @@ void Shadow::buildQuads()
+         (top.height() - m_topOffset > m_topLevel->height()) ||
+         (bottom.height() - m_bottomOffset > m_topLevel->height())) {
+         // if our shadow is bigger than the window, we don't render the shadow
++        kError(1212) << "shadow bigger than window!";
+         m_shadowRegion = QRegion();
+         return;
+     }
+--- kde-workspace-4.11.6/kwin/client.h.orig	2014-02-08 11:55:58.005332700 +0100
++++ kde-workspace-4.11.6/kwin/client.h	2014-02-08 13:28:22.233524129 +0100
+@@ -391,6 +391,8 @@ public:
+     bool userCanSetNoBorder() const;
+     void checkNoBorder();
+ 
++    bool noDecoration() const;
++
+     bool skipTaskbar(bool from_outside = false) const;
+     void setSkipTaskbar(bool set, bool from_outside = false);
+ 
+--- kde-workspace-4.11.6/kwin/scene_xrender.cpp.orig	2014-02-06 21:01:13.587601900 +0100
++++ kde-workspace-4.11.6/kwin/scene_xrender.cpp	2014-02-08 12:35:03.989413701 +0100
+@@ -435,7 +435,7 @@ void SceneXrender::Window::performPaint(
+     Client *client = dynamic_cast<Client*>(toplevel);
+     Deleted *deleted = dynamic_cast<Deleted*>(toplevel);
+     const QRect decorationRect = toplevel->decorationRect();
+-    if (((client && !client->noBorder()) || (deleted && !deleted->noBorder())) &&
++    if (((client && !client->noDecoration()) || (deleted && !deleted->noDecoration())) &&
+                                                         decorationPlugin()->hasAlpha()) {
+         // decorated client
+         transformed_shape = decorationRect;
+@@ -499,7 +499,7 @@ void SceneXrender::Window::performPaint(
+     // This solves a number of glitches and on top of this
+     // it optimizes painting quite a bit
+     const bool blitInTempPixmap = xRenderOffscreen() || (data.crossFadeProgress() < 1.0 && !opaque) ||
+-                                 (scaled && (wantShadow || (client && !client->noBorder()) || (deleted && !deleted->noBorder())));
++                                 (scaled && (wantShadow || (client && !client->noDecoration()) || (deleted && !deleted->noDecoration())));
+ 
+     xcb_render_picture_t renderTarget = buffer;
+     if (blitInTempPixmap) {
+@@ -537,7 +537,7 @@ void SceneXrender::Window::performPaint(
+         if (blitInTempPixmap) _RECT_.translate(-temp_visibleRect.topLeft()); else _RECT_ = mapToScreen(mask, data, _RECT_)
+ 
+     //BEGIN deco preparations
+-    bool noBorder = true;
++    bool noDeco = true;
+     xcb_render_picture_t left   = XCB_RENDER_PICTURE_NONE;
+     xcb_render_picture_t top    = XCB_RENDER_PICTURE_NONE;
+     xcb_render_picture_t right  = XCB_RENDER_PICTURE_NONE;
+@@ -545,13 +545,13 @@ void SceneXrender::Window::performPaint(
+     PaintRedirector *redirector = NULL;
+     QRect dtr, dlr, drr, dbr;
+     if (client || deleted) {
+-        if (client && !client->noBorder()) {
++        if (client && !client->noDecoration()) {
+             redirector = client->decorationPaintRedirector();
+-            noBorder = client->noBorder();
++            noDeco = client->noDecoration();
+             client->layoutDecorationRects(dlr, dtr, drr, dbr, Client::WindowRelative);
+         }
+-        if (deleted && !deleted->noBorder()) {
+-            noBorder = deleted->noBorder();
++        if (deleted && !deleted->noDecoration()) {
++            noDeco = deleted->noDecoration();
+             redirector = deleted->decorationPaintRedirector();
+             deleted->layoutDecorationRects(dlr, dtr, drr, dbr);
+         }
+@@ -562,7 +562,7 @@ void SceneXrender::Window::performPaint(
+             right  = redirector->rightDecoPixmap<xcb_render_picture_t>();
+             bottom = redirector->bottomDecoPixmap<xcb_render_picture_t>();
+         }
+-        if (!noBorder) {
++        if (!noDeco) {
+             MAP_RECT_TO_TARGET(dtr);
+             MAP_RECT_TO_TARGET(dlr);
+             MAP_RECT_TO_TARGET(drr);
+@@ -675,7 +675,7 @@ xcb_render_composite(connection(), XCB_R
+                  0, 0, 0, 0, _RECT_.x(), _RECT_.y(), _RECT_.width(), _RECT_.height())
+ 
+         if (client || deleted) {
+-            if (!noBorder) {
++            if (!noDeco) {
+                 xcb_render_picture_t decorationAlpha = xRenderBlendPicture(data.opacity() * data.decorationOpacity());
+                 RENDER_DECO_PART(top, dtr);
+                 RENDER_DECO_PART(left, dlr);
+--- kde-workspace-4.11.6/kwin/scene_opengl.cpp.orig	2014-02-06 19:29:39.425412200 +0100
++++ kde-workspace-4.11.6/kwin/scene_opengl.cpp	2014-02-08 13:20:03.610506913 +0100
+@@ -1155,7 +1155,7 @@ OpenGLPaintRedirector *SceneOpenGL::Wind
+ {
+     if (toplevel->isClient()) {
+         Client *client = static_cast<Client *>(toplevel);
+-        if (client->noBorder())
++        if (client->noDecoration())
+             return 0;
+ 
+         return static_cast<OpenGLPaintRedirector *>(client->decorationPaintRedirector());
+@@ -1163,7 +1163,7 @@ OpenGLPaintRedirector *SceneOpenGL::Wind
+ 
+     if (toplevel->isDeleted()) {
+         Deleted *deleted = static_cast<Deleted *>(toplevel);
+-        if (deleted->noBorder())
++        if (deleted->noDecoration())
+             return 0;
+ 
+         return static_cast<OpenGLPaintRedirector *>(deleted->decorationPaintRedirector());
+--- kde-workspace-4.11.6/kwin/clients/oxygen/oxygenclient.h.orig	2014-02-07 20:37:32.895529764 +0100
++++ kde-workspace-4.11.6/kwin/clients/oxygen/oxygenclient.h	2014-02-07 20:38:53.381532543 +0100
+@@ -114,9 +114,9 @@ namespace Oxygen
+         bool hideTitleBar( void ) const
+         {
+             return
+-                _configuration->hideTitleBar() &&
++                (_configuration->hideTitleBar() &&
+                 !isShade() &&
+-                tabCount() == 1;
++                tabCount() == 1) || (!isShade() && !isShadeable());
+         }
+ 
+         //@}
+--- kde-workspace-4.11.6/kwin/deleted.h.orig	2014-02-08 12:24:28.186391749 +0100
++++ kde-workspace-4.11.6/kwin/deleted.h	2014-02-08 12:25:10.216393200 +0100
+@@ -45,8 +45,8 @@ public:
+     virtual QSize clientSize() const;
+     virtual QRect transparentRect() const;
+     virtual bool isDeleted() const;
+-    bool noBorder() const {
+-        return no_border;
++    bool noDecoration() const {
++        return no_decoration;
+     }
+     void layoutDecorationRects(QRect &left, QRect &top, QRect &right, QRect &bottom, int unused = 0) const;
+     QRect decorationRect() const;
+@@ -85,7 +85,7 @@ private:
+     QRect contentsRect; // for clientPos()/clientSize()
+     QRect transparent_rect;
+ 
+-    bool no_border;
++    bool no_decoration;
+     QRect decoration_left;
+     QRect decoration_right;
+     QRect decoration_top;
+--- kde-workspace-4.11.6/kwin/deleted.cpp.orig	2014-02-07 12:19:44.330498473 +0100
++++ kde-workspace-4.11.6/kwin/deleted.cpp	2014-02-08 12:24:18.552391416 +0100
+@@ -32,7 +32,7 @@ namespace KWin
+ Deleted::Deleted()
+     : Toplevel()
+     , delete_refcount(1)
+-    , no_border(true)
++    , no_decoration(true)
+     , padding_left(0)
+     , padding_top(0)
+     , padding_right(0)
+@@ -83,12 +83,12 @@ void Deleted::copyToDeleted(Toplevel* c)
+     Client* client = dynamic_cast<Client*>(c);
+     if (client) {
+         m_wasClient = true;
+-        no_border = client->noBorder();
++        no_decoration = client->noDecoration();
+         padding_left = client->paddingLeft();
+         padding_right = client->paddingRight();
+         padding_bottom = client->paddingBottom();
+         padding_top = client->paddingTop();
+-        if (!no_border) {
++        if (!no_decoration) {
+             client->layoutDecorationRects(decoration_left,
+                                           decoration_top,
+                                           decoration_right,
